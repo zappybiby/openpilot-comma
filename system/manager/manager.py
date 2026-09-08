@@ -1165,7 +1165,7 @@ def manager_thread() -> None:
 
     if started and not started_prev:
       if starpilot_toggles.force_onroad:
-        # Keep forced-onroad configuration, but require fresh startup readiness.
+        # Don't let Panda switch modes before card is ready.
         params.remove("ControlsReady")
         params.remove("FirmwareQueryDone")
       else:
