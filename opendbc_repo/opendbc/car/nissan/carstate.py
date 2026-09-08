@@ -30,6 +30,11 @@ class CarState(CarStateBase):
     self.res_button = 0
     self.cancel_button = 0
 
+  def get_gear_shifter(self, can_parsers):
+    cp = can_parsers[Bus.pt]
+    can_gear = int(cp.vl["GEARBOX"]["GEAR_SHIFTER"])
+    return self.parse_gear_shifter(self.shifter_values.get(can_gear, None))
+
   def update(self, can_parsers, starpilot_toggles) -> structs.CarState:
     cp = can_parsers[Bus.pt]
     cp_cam = can_parsers[Bus.cam]
@@ -113,8 +118,7 @@ class CarState(CarStateBase):
 
     ret.espDisabled = bool(cp.vl["ESP"]["ESP_DISABLED"])
 
-    can_gear = int(cp.vl["GEARBOX"]["GEAR_SHIFTER"])
-    ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(can_gear, None))
+    ret.gearShifter = self.get_gear_shifter(can_parsers)
 
     # stock lkas should be off
     # TODO: is this needed?

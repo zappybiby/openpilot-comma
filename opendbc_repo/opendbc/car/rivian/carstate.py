@@ -34,6 +34,10 @@ class CarState(CarStateBase):
     self.toi_unavailable = False
     self.toi_fault_frames = 0
 
+  def get_gear_shifter(self, can_parsers):
+    cp = can_parsers[Bus.pt]
+    return GEAR_MAP.get(int(cp.vl["VDM_PropStatus"]["VDM_Prndl_Status"]), GearShifter.unknown)
+
   def update(self, can_parsers, starpilot_toggles) -> structs.CarState:
     cp = can_parsers[Bus.pt]
     cp_cam = can_parsers[Bus.cam]
@@ -98,7 +102,7 @@ class CarState(CarStateBase):
                       cp.vl["VDM_AdasSts"]["VDM_AdasFaultStatus"] in (2, 3))  # 2=Cntr_Fault, 3=Imps_Cmd
 
     # Gear
-    ret.gearShifter = GEAR_MAP.get(int(cp.vl["VDM_PropStatus"]["VDM_Prndl_Status"]), GearShifter.unknown)
+    ret.gearShifter = self.get_gear_shifter(can_parsers)
 
     # Gen 2 does not publish these signals. Stock ACC handles their disengage
     # behavior at standstill, and the doors cannot be opened while driving.

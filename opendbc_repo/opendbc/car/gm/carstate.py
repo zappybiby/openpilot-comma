@@ -163,6 +163,13 @@ class CarState(CarStateBase):
           return True
     return False
 
+  def get_gear_shifter(self, can_parsers):
+    pt_cp = can_parsers[Bus.pt]
+    if pt_cp.vl["ECMPRDNL2"]["ManualMode"] == 1:
+      return self.parse_gear_shifter("T")
+    else:
+      return self.parse_gear_shifter(self.shifter_values.get(pt_cp.vl["ECMPRDNL2"]["PRNDL2"], None))
+
   def update(self, can_parsers, starpilot_toggles) -> structs.CarState:
     pt_cp = can_parsers[Bus.pt]
     cam_cp = can_parsers[Bus.cam]
@@ -240,10 +247,7 @@ class CarState(CarStateBase):
 
     self._update_car_gps(pt_cp, ret.vEgo)
 
-    if pt_cp.vl["ECMPRDNL2"]["ManualMode"] == 1:
-      ret.gearShifter = self.parse_gear_shifter("T")
-    else:
-      ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(pt_cp.vl["ECMPRDNL2"]["PRNDL2"], None))
+    ret.gearShifter = self.get_gear_shifter(can_parsers)
 
     no_accel_pos = bool(self.CP.flags & GMFlags.NO_ACCELERATOR_POS_MSG.value)
     if no_accel_pos:

@@ -47,6 +47,35 @@ class CarState(CarStateBase):
 
     return button_events
 
+  def get_gear_shifter(self, can_parsers):
+    pt_cp = can_parsers[Bus.pt]
+    if self.CP.flags & VolkswagenFlags.PQ:
+      if self.CP.transmissionType == TransmissionType.automatic:
+        return self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Getriebe_1"]["GE1_Wahl_Pos"], None))
+      elif self.CP.transmissionType == TransmissionType.manual:
+        reverse_light = bool(pt_cp.vl["Gate_Komf_1"]["GK1_Rueckfahr"])
+        if reverse_light:
+          return GearShifter.reverse
+        else:
+          return GearShifter.drive
+      return GearShifter.unknown
+    if self.CP.flags & VolkswagenFlags.MLB:
+      return self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Getriebe_03"]["GE_Waehlhebel"], None))
+    if self.CP.flags & VolkswagenFlags.MEB:
+      if self.CP.flags & VolkswagenFlags.ALT_GEAR:
+        return self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Gateway_73"]["GE_Fahrstufe"], None))
+      else:
+        return self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Getriebe_11"]["GE_Fahrstufe"], None))
+    if self.CP.transmissionType == TransmissionType.direct:
+      return self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Motor_EV_01"]["MO_Waehlpos"], None))
+    elif self.CP.transmissionType == TransmissionType.manual:
+      if bool(pt_cp.vl["Gateway_72"]["BCM1_Rueckfahrlicht_Schalter"]):
+        return GearShifter.reverse
+      else:
+        return GearShifter.drive
+    else:
+      return self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Gateway_73"]["GE_Fahrstufe"], None))
+
   def update(self, can_parsers, starpilot_toggles) -> structs.CarState:
     pt_cp = can_parsers[Bus.pt]
     cam_cp = can_parsers[Bus.cam]
@@ -61,15 +90,7 @@ class CarState(CarStateBase):
 
     ret = structs.CarState()
 
-    if self.CP.transmissionType == TransmissionType.direct:
-      ret.gearShifter = self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Motor_EV_01"]["MO_Waehlpos"], None))
-    elif self.CP.transmissionType == TransmissionType.manual:
-      if bool(pt_cp.vl["Gateway_72"]["BCM1_Rueckfahrlicht_Schalter"]):
-        ret.gearShifter = GearShifter.reverse
-      else:
-        ret.gearShifter = GearShifter.drive
-    else:
-      ret.gearShifter = self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Gateway_73"]["GE_Fahrstufe"], None))
+    ret.gearShifter = self.get_gear_shifter({Bus.pt: pt_cp})
 
     if True:
       # MQB-specific
@@ -167,10 +188,8 @@ class CarState(CarStateBase):
     self.curvature_meas = -pt_cp.vl["QFK_01"]["Curvature"] * (1, -1)[int(pt_cp.vl["QFK_01"]["Curvature_VZ"])]
     ret.yawRate = -pt_cp.vl["ESC_50"]["Yaw_Rate"] * (1, -1)[int(pt_cp.vl["ESC_50"]["Yaw_Rate_Sign"])] * CV.DEG_TO_RAD
 
-    if self.CP.flags & VolkswagenFlags.ALT_GEAR:
-      ret.gearShifter = self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Gateway_73"]["GE_Fahrstufe"], None))
-    else:
-      ret.gearShifter = self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Getriebe_11"]["GE_Fahrstufe"], None))
+    ret.gearShifter = self.get_gear_shifter({Bus.pt: pt_cp})
+
     in_drive = ret.gearShifter == GearShifter.drive
 
     hca_status = self.CCP.hca_status_values.get(pt_cp.vl["QFK_01"]["LatCon_HCA_Status"])
@@ -259,14 +278,7 @@ class CarState(CarStateBase):
     ret.parkingBrake = bool(pt_cp.vl["Kombi_1"]["Bremsinfo"])
 
     # Update gear and/or clutch position data.
-    if self.CP.transmissionType == TransmissionType.automatic:
-      ret.gearShifter = self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Getriebe_1"]["GE1_Wahl_Pos"], None))
-    elif self.CP.transmissionType == TransmissionType.manual:
-      reverse_light = bool(pt_cp.vl["Gate_Komf_1"]["GK1_Rueckfahr"])
-      if reverse_light:
-        ret.gearShifter = GearShifter.reverse
-      else:
-        ret.gearShifter = GearShifter.drive
+    ret.gearShifter = self.get_gear_shifter({Bus.pt: pt_cp})
 
     # Update door and trunk/hatch lid open status.
     ret.doorOpen = any([pt_cp.vl["Gate_Komf_1"]["GK1_Fa_Tuerkont"],
@@ -341,7 +353,7 @@ class CarState(CarStateBase):
     )
 
     ret.gasPressed = pt_cp.vl["Motor_03"]["MO_Fahrpedalrohwert_01"] > 0
-    ret.gearShifter = self.parse_gear_shifter(self.CCP.shifter_values.get(pt_cp.vl["Getriebe_03"]["GE_Waehlhebel"], None))
+    ret.gearShifter = self.get_gear_shifter({Bus.pt: pt_cp})
 
     # ACC okay but disabled (1), ACC ready (2), a radar visibility or other fault/disruption (6 or 7)
     # currently regulating speed (3), driver accel override (4), brake only (5)

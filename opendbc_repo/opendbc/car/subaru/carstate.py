@@ -29,6 +29,13 @@ class CarState(CarStateBase):
     self.cruise_buttons_msg = {}
     self.cruise_buttons = {button: 0 for button in SUBARU_CRUISE_BUTTONS}
 
+  def get_gear_shifter(self, can_parsers):
+    cp = can_parsers[Bus.pt]
+    cp_alt = can_parsers[Bus.alt]
+    cp_transmission = cp_alt if self.CP.flags & SubaruFlags.HYBRID else cp
+    can_gear = int(cp_transmission.vl["Transmission"]["Gear"])
+    return self.parse_gear_shifter(self.shifter_values.get(can_gear, None))
+
   def update(self, can_parsers, starpilot_toggles) -> structs.CarState:
     cp = can_parsers[Bus.pt]
     cp_cam = can_parsers[Bus.cam]
@@ -79,9 +86,7 @@ class CarState(CarStateBase):
       ret.leftBlindspot = (cp_bsm.vl["BSD_RCTA"]["L_ADJACENT"] == 1) or (cp_bsm.vl["BSD_RCTA"]["L_APPROACHING"] == 1)
       ret.rightBlindspot = (cp_bsm.vl["BSD_RCTA"]["R_ADJACENT"] == 1) or (cp_bsm.vl["BSD_RCTA"]["R_APPROACHING"] == 1)
 
-    cp_transmission = cp_alt if self.CP.flags & SubaruFlags.HYBRID else cp
-    can_gear = int(cp_transmission.vl["Transmission"]["Gear"])
-    ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(can_gear, None))
+    ret.gearShifter = self.get_gear_shifter(can_parsers)
 
     if self.CP.flags & SubaruFlags.LKAS_ANGLE:
       ret.steeringAngleDeg = cp_angle.vl["Steering_2"]["Steering_Angle"]
