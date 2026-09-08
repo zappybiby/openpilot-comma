@@ -73,8 +73,12 @@ def rig(monkeypatch, recording):
   def receive(sock, wait_for_one):
     assert sock == "can" and wait_for_one
     if delivery:
-      clock.now, packet = delivery.pop(0)
-      return [packet]
+      clock.now = max(clock.now, delivery[0][0])
+      packets = []
+      while delivery and delivery[0][0] <= clock.now:
+        _, packet = delivery.pop(0)
+        packets.append(packet)
+      return packets
     clock.now += 100_000_000
     return []
 
@@ -256,3 +260,27 @@ def test_can_timestamps_use_publisher_clock(rig):
   for value in (True, False):
     rig.stream()
     rig.request(value, 200)
+
+
+@pytest.mark.parametrize("value", [True, False], ids=["enable", "disable"])
+def test_processing_pause_rejects_expired_park(rig, monkeypatch, value):
+  rig.params.values["ForceOffroad"] = not value
+  rig.stream(lambda offset: 4 if offset < 1_300_000_000 else 121)
+  real_update = CarState.update
+  paused = False
+
+  def delayed_update(self, parsers, toggles):
+    nonlocal paused
+    state = real_update(self, parsers, toggles)
+    required = [m for p in parsers.values() for m in p.message_states.values() if not m.ignore_alive]
+    if not paused and required and all(m.frequency > 0 for m in required):
+      # Pause once the decoder has enough data to evaluate Park.
+      rig.clock.now += 1_000_000_000
+      paused = True
+      gear = next(m for m in required if m.name == "Transmission")
+      assert rig.clock.now - gear.timestamps[-1] > gear.timeout_threshold
+    return state
+
+  monkeypatch.setattr(CarState, "update", delayed_update)
+  rig.request(value, 403)
+  assert paused
