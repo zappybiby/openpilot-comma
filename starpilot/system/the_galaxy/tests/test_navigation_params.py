@@ -1,6 +1,9 @@
 import json
 import sys
 from dataclasses import asdict
+from types import SimpleNamespace
+
+import pytest
 
 from openpilot.common.params import ParamKeyType
 
@@ -751,6 +754,100 @@ def test_force_offroad_toggle_rejects_when_not_parked(monkeypatch):
   assert response.status_code == 403
   assert response.get_json()["error"] == "Force Offroad is only available while the vehicle is in Park."
   assert fake_params.writes == []
+
+
+@pytest.mark.parametrize("parked", [False, True])
+@pytest.mark.parametrize("value", [False, 0, "0", "false", "False"])
+@pytest.mark.parametrize("force_offroad,force_onroad", [(False, False), (True, False), (False, True), (True, True)])
+def test_force_offroad_disable_requires_park(monkeypatch, value, force_offroad, force_onroad, parked):
+  client, fake_params = _params_client(monkeypatch, {
+    "ForceOffroad": force_offroad,
+    "ForceOnroad": force_onroad,
+    "IsOnroad": False,
+  }, "mici")
+
+  monkeypatch.setattr(the_galaxy, "_get_vehicle_parked", lambda: parked)
+  response = client.put("/api/params", json={"key": "ForceOffroad", "value": value})
+
+  assert response.status_code == (200 if parked else 403)
+  assert fake_params.writes == ([("ForceOffroad", False), ("ForceOnroad", False)] if parked else [])
+
+
+@pytest.mark.parametrize("gear,seen,alive,valid", [
+  ("park", True, True, True),
+  ("drive", True, True, True),
+  ("reverse", True, True, True),
+  ("neutral", True, True, True),
+  ("unknown", True, True, True),
+  ("park", False, False, False),
+  ("park", True, False, True),
+  ("park", True, True, False),
+])
+def test_force_offroad_enable_checks_live_car_state(monkeypatch, gear, seen, alive, valid):
+  client, fake_params = _params_client(monkeypatch, {"ForceOffroad": False, "ForceOnroad": True, "IsOnroad": True}, "tici")
+
+  class FakeSubMaster(dict):
+    def __init__(self, *args, **kwargs):
+      super().__init__(carState=SimpleNamespace(gearShifter=gear))
+      self.seen = {"carState": seen}
+      self.alive = {"carState": alive}
+      self.valid = {"carState": valid}
+
+    def update(self, timeout):
+      assert timeout == 100
+
+  monkeypatch.setattr(the_galaxy.messaging, "SubMaster", FakeSubMaster)
+  monkeypatch.setattr(the_galaxy.car, "CarState", SimpleNamespace(GearShifter=SimpleNamespace(park="park")), raising=False)
+  response = client.put("/api/params", json={"key": "ForceOffroad", "value": True})
+
+  permitted = gear == "park" and seen and alive and valid
+  assert response.status_code == (200 if permitted else 403)
+  assert fake_params.writes == ([("ForceOffroad", True), ("ForceOnroad", False)] if permitted else [])
+
+
+def test_force_offroad_enable_still_requires_park_when_already_enabled(monkeypatch):
+  client, fake_params = _params_client(monkeypatch, {"ForceOffroad": True, "ForceOnroad": False}, "mici")
+  monkeypatch.setattr(the_galaxy, "_get_vehicle_parked", lambda: False)
+  response = client.put("/api/params", json={"key": "ForceOffroad", "value": True})
+
+  assert response.status_code == 403
+  assert fake_params.writes == []
+  assert fake_params.values["ForceOffroad"] is True
+
+
+def test_force_offroad_park_and_device_transitions(monkeypatch):
+  client, fake_params = _params_client(monkeypatch, {"ForceOffroad": False, "ForceOnroad": False}, "mici")
+  parked = False
+  monkeypatch.setattr(the_galaxy, "_get_vehicle_parked", lambda: parked)
+
+  def request(value, status):
+    previous = dict(fake_params.values)
+    response = client.put("/api/params", json={"key": "ForceOffroad", "value": value})
+    assert response.status_code == status
+    if status == 200:
+      assert fake_params.values["ForceOffroad"] is value
+      assert fake_params.values["ForceOnroad"] is False
+    else:
+      assert fake_params.values == previous
+
+  request(True, 403)  # Drive: cannot enable.
+  parked = True
+  request(True, 200)  # Shift into Park without reloading the page.
+  request(False, 200)  # Still in Park: return to Auto.
+  request(False, 200)  # Repeating the request while parked is harmless.
+  request(True, 200)
+  parked = False
+  request(False, 403)  # Shift out of Park while forced offroad.
+  parked = True
+  request(False, 200)  # Shift back into Park.
+
+  fake_params.values.update(ForceOffroad=True, ForceOnroad=False)  # Device selects Offroad.
+  request(False, 200)
+  fake_params.values.update(ForceOffroad=False, ForceOnroad=True)  # Device selects Onroad.
+  request(False, 200)  # Restore Auto while parked, including clearing ForceOnroad.
+  parked = False
+  request(True, 403)
+  request(False, 403)
 
 
 def test_curve_speed_controller_reset_clears_learned_data_offroad(monkeypatch):

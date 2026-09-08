@@ -59,6 +59,24 @@ class CarState(CarStateBase):
   def get_car_gps(self):
     return self.car_gps
 
+  def get_gear_shifter(self, can_parsers):
+    cp = can_parsers[Bus.pt]
+    if self.CP.transmissionType == TransmissionType.automatic:
+      if self.CP.flags & FordFlags.CANFD:
+        gear = self.shifter_values.get(cp.vl["Gear_Shift_by_Wire_FD1"]["TrnRng_D_RqGsm"])
+      elif self.CP.flags & FordFlags.ALT_STEER_ANGLE:
+        gear = self.shifter_values.get(cp.vl["TransGearData"]["GearLvrPos_D_Actl"])
+      else:
+        gear = self.shifter_values.get(cp.vl["PowertrainData_10"]["TrnRng_D_Rq"])
+      return self.parse_gear_shifter(gear)
+    elif self.CP.transmissionType == TransmissionType.manual:
+      if bool(cp.vl["BCM_Lamp_Stat_FD1"]["RvrseLghtOn_B_Stat"]):
+        return GearShifter.reverse
+      else:
+        return GearShifter.drive
+
+    return GearShifter.unknown
+
   def update(self, can_parsers, starpilot_toggles) -> structs.CarState:
     cp = can_parsers[Bus.pt]
     cp_cam = can_parsers[Bus.cam]
@@ -129,19 +147,7 @@ class CarState(CarStateBase):
       ret.accFaulted = ret.accFaulted or cp_cam.vl["ACCDATA"]["CmbbDeny_B_Actl"] == 1
 
     # gear
-    if self.CP.transmissionType == TransmissionType.automatic:
-      if self.CP.flags & FordFlags.CANFD:
-        gear = self.shifter_values.get(cp.vl["Gear_Shift_by_Wire_FD1"]["TrnRng_D_RqGsm"])
-      elif self.CP.flags & FordFlags.ALT_STEER_ANGLE:
-        gear = self.shifter_values.get(cp.vl["TransGearData"]["GearLvrPos_D_Actl"])
-      else:
-        gear = self.shifter_values.get(cp.vl["PowertrainData_10"]["TrnRng_D_Rq"])
-      ret.gearShifter = self.parse_gear_shifter(gear)
-    elif self.CP.transmissionType == TransmissionType.manual:
-      if bool(cp.vl["BCM_Lamp_Stat_FD1"]["RvrseLghtOn_B_Stat"]):
-        ret.gearShifter = GearShifter.reverse
-      else:
-        ret.gearShifter = GearShifter.drive
+    ret.gearShifter = self.get_gear_shifter(can_parsers)
 
     # safety
     ret.stockFcw = bool(cp_cam.vl["ACCDATA_3"]["FcwVisblWarn_B_Rq"])

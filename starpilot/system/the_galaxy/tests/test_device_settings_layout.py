@@ -269,7 +269,10 @@ def test_requested_simple_and_advanced_settings_tiers():
   assert developer["AlphaLongitudinalEnabled"]["requires_offroad"] is True
   assert developer["AlphaLongitudinalEnabled"]["settings_tier"] == "advanced"
   assert developer["ForceOffroad"]["parent_key"] == "GalaxyDeveloperMode"
-  assert developer["ForceOffroad"]["requires_parked"] is True
+  # Park is checked live by the API when enabling. A cached UI gate would
+  # prevent disabling offroad or enabling after shifting into Park.
+  assert not developer["ForceOffroad"].get("requires_parked")
+  assert not developer["ForceOffroad"].get("requires_offroad")
   assert developer["ForceOffroad"]["settings_tier"] == "advanced"
   assert developer["DeveloperUI"]["settings_tier"] == "advanced"
   assert developer["RedneckCruise"]["settings_tier"] == "advanced"

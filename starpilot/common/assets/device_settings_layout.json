@@ -4856,7 +4856,6 @@
         "data_type": "bool",
         "ui_type": "toggle",
         "parent_key": "GalaxyDeveloperMode",
-        "requires_parked": true,
         "confirm_message": "Force the device offroad? Only use this while the vehicle is in Park.",
         "settings_tier": "advanced"
       },

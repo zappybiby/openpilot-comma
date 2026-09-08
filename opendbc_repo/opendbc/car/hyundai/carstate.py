@@ -296,6 +296,27 @@ class CarState(CarStateBase):
       return source_states[selected_source]
     return 0
 
+  def get_gear_shifter(self, can_parsers):
+    cp = can_parsers[Bus.pt]
+    if self.CP.flags & HyundaiFlags.CANFD:
+      gear = cp.vl[self.gear_msg_canfd]["GEAR"]
+      return self.parse_gear_shifter(self.shifter_values.get(gear))
+
+    # Gear Selection via Cluster - For those Kia/Hyundai which are not fully discovered, we can use the Cluster Indicator for Gear Selection,
+    # as this seems to be standard over all cars, but is not the preferred method.
+    if self.CP.flags & (HyundaiFlags.HYBRID | HyundaiFlags.EV):
+      gear = cp.vl["ELECT_GEAR"]["Elect_Gear_Shifter"]
+    elif self.CP.flags & HyundaiFlags.FCEV:
+      gear = cp.vl["EMS20"]["HYDROGEN_GEAR_SHIFTER"]
+    elif self.CP.flags & HyundaiFlags.CLUSTER_GEARS:
+      gear = cp.vl["CLU15"]["CF_Clu_Gear"]
+    elif self.CP.flags & HyundaiFlags.TCU_GEARS:
+      gear = cp.vl["TCU12"]["CUR_GR"]
+    else:
+      gear = cp.vl["LVR12"]["CF_Lvr_Gear"]
+
+    return self.parse_gear_shifter(self.shifter_values.get(gear))
+
   def update(self, can_parsers, starpilot_toggles) -> structs.CarState:
     cp = can_parsers[Bus.pt]
     cp_cam = can_parsers[Bus.cam]
@@ -404,20 +425,7 @@ class CarState(CarStateBase):
     else:
       ret.gasPressed = bool(cp.vl["EMS16"]["CF_Ems_AclAct"])
 
-    # Gear Selection via Cluster - For those Kia/Hyundai which are not fully discovered, we can use the Cluster Indicator for Gear Selection,
-    # as this seems to be standard over all cars, but is not the preferred method.
-    if self.CP.flags & (HyundaiFlags.HYBRID | HyundaiFlags.EV):
-      gear = cp.vl["ELECT_GEAR"]["Elect_Gear_Shifter"]
-    elif self.CP.flags & HyundaiFlags.FCEV:
-      gear = cp.vl["EMS20"]["HYDROGEN_GEAR_SHIFTER"]
-    elif self.CP.flags & HyundaiFlags.CLUSTER_GEARS:
-      gear = cp.vl["CLU15"]["CF_Clu_Gear"]
-    elif self.CP.flags & HyundaiFlags.TCU_GEARS:
-      gear = cp.vl["TCU12"]["CUR_GR"]
-    else:
-      gear = cp.vl["LVR12"]["CF_Lvr_Gear"]
-
-    ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(gear))
+    ret.gearShifter = self.get_gear_shifter(can_parsers)
 
     if (not self.CP.openpilotLongitudinalControl or self.CP.flags & HyundaiFlags.CAMERA_SCC) and \
         not (self.CP.flags & HyundaiFlags.CAN_CANFD_BLENDED):
@@ -499,8 +507,7 @@ class CarState(CarStateBase):
     ret.doorOpen = cp.vl["DOORS_SEATBELTS"]["DRIVER_DOOR"] == 1
     ret.seatbeltUnlatched = cp.vl["DOORS_SEATBELTS"]["DRIVER_SEATBELT"] == 0
 
-    gear = cp.vl[self.gear_msg_canfd]["GEAR"]
-    ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(gear))
+    ret.gearShifter = self.get_gear_shifter({Bus.pt: cp})
 
     # TODO: figure out positions
     self.parse_wheel_speeds(ret,

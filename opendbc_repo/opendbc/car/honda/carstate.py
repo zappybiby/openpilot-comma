@@ -88,6 +88,14 @@ class CarState(CarStateBase):
     self.canfd_frames = 0
     self.canfd_relay_open = False
 
+  def get_gear_shifter(self, can_parsers):
+    cp = can_parsers[Bus.pt]
+    if self.CP.transmissionType == TransmissionType.manual:
+      return GearShifter.reverse if bool(cp.vl[self.car_state_scm_msg]["REVERSE_LIGHT"]) else GearShifter.drive
+    else:
+      gear_position = self.shifter_values.get(cp.vl[self.gearbox_msg]["GEAR_SHIFTER"], None)
+      return self.parse_gear_shifter(gear_position)
+
   def update(self, can_parsers, starpilot_toggles) -> structs.CarState:
     cp = can_parsers[Bus.pt]
     cp_cam = can_parsers[Bus.cam]
@@ -192,11 +200,7 @@ class CarState(CarStateBase):
     ret.brakeHoldActive = cp.vl["VSA_STATUS"]["BRAKE_HOLD_ACTIVE"] == 1
     ret.parkingBrake = bool(cp.vl[self.car_state_scm_msg]["PARKING_BRAKE_ON"])
 
-    if self.CP.transmissionType == TransmissionType.manual:
-      ret.gearShifter = GearShifter.reverse if bool(cp.vl[self.car_state_scm_msg]["REVERSE_LIGHT"]) else GearShifter.drive
-    else:
-      gear_position = self.shifter_values.get(cp.vl[self.gearbox_msg]["GEAR_SHIFTER"], None)
-      ret.gearShifter = self.parse_gear_shifter(gear_position)
+    ret.gearShifter = self.get_gear_shifter(can_parsers)
 
     if self.CP.enableGasInterceptorDEPRECATED:
       gas = (cp.vl["GAS_SENSOR"]["INTERCEPTOR_GAS"] + cp.vl["GAS_SENSOR"]["INTERCEPTOR_GAS2"]) / 2.

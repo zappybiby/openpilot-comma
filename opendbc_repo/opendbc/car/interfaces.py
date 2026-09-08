@@ -472,6 +472,9 @@ class CarStateBase(ABC):
   def update(self, can_parsers, starpilot_toggles) -> structs.CarState:
     pass
 
+  def get_gear_shifter(self, can_parsers):
+    return GearShifter.unknown
+
   def parse_wheel_speeds(self, cs, fl, fr, rl, rr, unit=CV.KPH_TO_MS):
     cs.vEgoRaw = sum((fl, fr, rl, rr)) / 4 * unit * self.CP.wheelSpeedFactor
     cs.vEgo, cs.aEgo = self.update_speed_kf(cs.vEgoRaw)

@@ -43,6 +43,13 @@ class CarState(CarStateBase):
 
     return pt_signals.get("TRACTION_BUTTON", {}).get("TOGGLE_LKAS", 0) == 1
 
+  def get_gear_shifter(self, can_parsers):
+    cp = can_parsers[Bus.pt]
+    if self.CP.carFingerprint in RAM_CARS:
+      return self.parse_gear_shifter(self.shifter_values.get(cp.vl["Transmission_Status"]["Gear_State"], None))
+    else:
+      return self.parse_gear_shifter(self.shifter_values.get(cp.vl["GEAR"]["PRNDL"], None))
+
   def update(self, can_parsers, starpilot_toggles) -> structs.CarState:
     cp = can_parsers[Bus.pt]
     cp_cam = can_parsers[Bus.cam]
@@ -69,10 +76,9 @@ class CarState(CarStateBase):
     # car speed
     if self.CP.carFingerprint in RAM_CARS:
       ret.vEgoRaw = cp.vl["ESP_8"]["Vehicle_Speed"] * CV.KPH_TO_MS
-      ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(cp.vl["Transmission_Status"]["Gear_State"], None))
     else:
       ret.vEgoRaw = (cp.vl["SPEED_1"]["SPEED_LEFT"] + cp.vl["SPEED_1"]["SPEED_RIGHT"]) / 2.
-      ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(cp.vl["GEAR"]["PRNDL"], None))
+    ret.gearShifter = self.get_gear_shifter(can_parsers)
     ret.vEgo, ret.aEgo = self.update_speed_kf(ret.vEgoRaw)
     ret.standstill = not ret.vEgoRaw > 0.001
 

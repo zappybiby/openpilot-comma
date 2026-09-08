@@ -93,6 +93,14 @@ class CarState(CarStateBase):
     self.auto_brake_hold = bool(self.CP.flags & ToyotaFlags.AUTO_BRAKE_HOLD.value)
     self.pre_collision_2 = {}
 
+  def get_gear_shifter(self, can_parsers):
+    cp = can_parsers[Bus.pt]
+    if self.CP.flags & ToyotaFlags.SECOC.value:
+      can_gear = int(cp.vl["GEAR_PACKET_HYBRID"]["GEAR"])
+    else:
+      can_gear = int(cp.vl["GEAR_PACKET"]["GEAR"])
+    return self.parse_gear_shifter(self.shifter_values.get(can_gear, None))
+
   def update(self, can_parsers, starpilot_toggles) -> structs.CarState:
     cp = can_parsers[Bus.pt]
     cp_cam = can_parsers[Bus.cam]
@@ -115,13 +123,11 @@ class CarState(CarStateBase):
     if self.CP.flags & ToyotaFlags.SECOC.value:
       self.secoc_synchronization = copy.copy(cp.vl["SECOC_SYNCHRONIZATION"])
       ret.gasPressed = cp.vl["GAS_PEDAL"]["GAS_PEDAL_USER"] > 0
-      can_gear = int(cp.vl["GEAR_PACKET_HYBRID"]["GEAR"])
     else:
       if self.CP.enableGasInterceptorDEPRECATED:
         ret.gasPressed = calculate_interceptor_gas_pressed(cp)
       else:
         ret.gasPressed = cp.vl["PCM_CRUISE"]["GAS_RELEASED"] == 0  # TODO: these also have GAS_PEDAL, come back and unify
-      can_gear = int(cp.vl["GEAR_PACKET"]["GEAR"])
       if not self.CP.flags & ToyotaFlags.DISABLE_RADAR.value:
         ret.stockAeb = bool(cp_acc.vl["PRE_COLLISION"]["PRECOLLISION_ACTIVE"] and cp_acc.vl["PRE_COLLISION"]["FORCE"] < -1e-5)
 
@@ -152,7 +158,7 @@ class CarState(CarStateBase):
         ret.steeringAngleOffsetDeg = self.angle_offset.x
         ret.steeringAngleDeg = torque_sensor_angle_deg - self.angle_offset.x
 
-    ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(can_gear, None))
+    ret.gearShifter = self.get_gear_shifter(can_parsers)
     ret.leftBlinker = cp.vl["BLINKERS_STATE"]["TURN_SIGNALS"] == 1
     ret.rightBlinker = cp.vl["BLINKERS_STATE"]["TURN_SIGNALS"] == 2
 

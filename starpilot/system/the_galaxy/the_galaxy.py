@@ -4134,8 +4134,45 @@ def _get_has_radar():
   except Exception:
     return False
 
+def _get_offroad_vehicle_parked():
+  cp_bytes = _safe_params_get_live_raw("CarParamsPersistent")
+  fpcp_bytes = _safe_params_get_live_raw("StarPilotCarParamsPersistent")
+  if not cp_bytes or not fpcp_bytes:
+    return False
+
+  with car.CarParams.from_bytes(cp_bytes) as cp, custom.StarPilotCarParams.from_bytes(fpcp_bytes) as fpcp:
+    # Decode only; constructing CarInterface would also create a controller.
+    car_state = importlib.import_module(f"opendbc.car.{cp.brand}.carstate").CarState(cp, fpcp)
+    parsers = {bus: CANParser(p.dbc_name, [], p.bus) for bus, p in car_state.get_can_parsers(cp).items()}
+    # Register only the messages used to decode gear; never trust their initial values.
+    car_state.get_gear_shifter(parsers)
+    sizes = {(p.bus, s.address): s.size for p in parsers.values() for s in p.message_states.values()}
+    if not sizes:
+      return False
+    can_sock = messaging.sub_sock("can", timeout=100)
+    started = time.monotonic_ns()
+    deadline = started + 1_000_000_000
+    while time.monotonic_ns() < deadline:
+      packets = messaging.drain_sock(can_sock, wait_for_one=True)
+      now = time.monotonic_ns()
+      frames = [(p.logMonoTime, [(c.address, c.dat, c.src) for c in p.can if len(c.dat) == sizes.get((c.src, c.address))])
+                for p in packets if p.valid and started <= p.logMonoTime <= now]
+      if not frames:
+        continue
+      for parser in parsers.values():
+        parser.update(frames)
+      if all(parser.can_valid for parser in parsers.values()) and all(
+        s.timestamps and now - s.timestamps[-1] <= 100_000_000
+        for parser in parsers.values() for s in parser.message_states.values()
+      ):
+        return car_state.get_gear_shifter(parsers) == car.CarState.GearShifter.park
+  return False
+
+
 def _get_vehicle_parked():
   try:
+    if not params.get_bool("IsOnroad"):
+      return _get_offroad_vehicle_parked()
     sm = messaging.SubMaster(["carState"], poll="carState")
     sm.update(100)
     if not sm.seen["carState"] or not sm.alive["carState"] or not sm.valid["carState"]:

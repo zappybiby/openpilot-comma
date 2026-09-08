@@ -35,6 +35,22 @@ class CarState(CarStateBase):
     self.msg_lca_6 = {}
     self.msg_lca_7 = {}
 
+  def get_gear_shifter(self, can_parsers):
+    cp_main = can_parsers[Bus.main]
+    gearPosition = cp_main.vl['GEAR_POSITION']['GEAR_POSITION'] # 0: P; 1: R; 2: N; 3: D; 4: B;
+    if gearPosition == 0:
+      return GearShifter.park
+    elif gearPosition == 1:
+      return GearShifter.reverse
+    elif gearPosition == 2:
+      return GearShifter.neutral
+    elif gearPosition == 3:
+      return GearShifter.drive
+    elif gearPosition == 4:
+      return GearShifter.drive
+
+    return GearShifter.unknown
+
   def update(self, can_parsers, starpilot_toggles) -> structs.CarState:
     cp_main = can_parsers[Bus.main]
     cp_pt = can_parsers[Bus.pt]
@@ -97,17 +113,7 @@ class CarState(CarStateBase):
     ret.cruiseState.standstill = ret.standstill # False # Todo: Find cruise control standstill signal
 
     # gear
-    gearPosition = cp_main.vl['GEAR_POSITION']['GEAR_POSITION'] # 0: P; 1: R; 2: N; 3: D; 4: B;
-    if gearPosition == 0:
-      ret.gearShifter = GearShifter.park
-    elif gearPosition == 1:
-      ret.gearShifter = GearShifter.reverse
-    elif gearPosition == 2:
-      ret.gearShifter = GearShifter.neutral
-    elif gearPosition == 3:
-      ret.gearShifter = GearShifter.drive
-    elif gearPosition == 4:
-      ret.gearShifter = GearShifter.drive
+    ret.gearShifter = self.get_gear_shifter(can_parsers)
 
     # blinkers TODO FlexRay
     ret.leftBlinker = False
