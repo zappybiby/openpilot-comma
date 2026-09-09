@@ -72,6 +72,13 @@ class CarState(CarStateBase):
       return False
     return super().update_button_enable(buttonEvents)
 
+  def get_gear_shifter(self, can_parsers):
+    if self.CP.carFingerprint == CAR.TESLA_MODEL_S_PREAP:
+      gear = can_parsers[Bus.chassis].vl["DI_torque2"]["DI_gear"]
+    else:
+      gear = can_parsers[Bus.party].vl["DI_systemStatus"]["DI_gear"]
+    return GEAR_MAP[self.shifter_values.get(int(gear), "DI_GEAR_INVALID")]
+
   def update(self, can_parsers, starpilot_toggles) -> structs.CarState:
     if self.CP.carFingerprint == CAR.TESLA_MODEL_S_PREAP:
       return update_preap(self, can_parsers)
@@ -137,7 +144,7 @@ class CarState(CarStateBase):
     ret.accFaulted = cruise_state == "FAULT"
 
     # Gear
-    ret.gearShifter = GEAR_MAP[self.can_define.dv["DI_systemStatus"]["DI_gear"].get(int(cp_party.vl["DI_systemStatus"]["DI_gear"]), "DI_GEAR_INVALID")]
+    ret.gearShifter = self.get_gear_shifter(can_parsers)
 
     # Doors
     ret.doorOpen = cp_party.vl["UI_warning"]["anyDoorOpen"] == 1

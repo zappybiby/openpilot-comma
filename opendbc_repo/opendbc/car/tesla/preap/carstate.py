@@ -10,7 +10,7 @@ from opendbc.car.tesla.preap.nap_params import NAPParamKeys
 from opendbc.car.tesla.preap.engagement import PreAPEngagement
 from opendbc.car.tesla.preap.nap_conf import PEDAL_DI_PRESSED, nap_conf
 from opendbc.car.tesla.preap.pedal_feedback import PedalFeedback
-from opendbc.car.tesla.values import CANBUS, DBC, GEAR_MAP, STEER_THRESHOLD
+from opendbc.car.tesla.values import CANBUS, DBC, STEER_THRESHOLD
 
 try:
   from openpilot.common.params import Params as _NAPParams
@@ -78,7 +78,7 @@ def update_preap(cs, can_parsers):
   ret.standstill = cruise_state == "STANDSTILL"
   ret.accFaulted = cruise_state == "FAULT"
 
-  ret.gearShifter = GEAR_MAP[cs.can_define.dv["DI_torque2"]["DI_gear"].get(int(cp_chassis.vl["DI_torque2"]["DI_gear"]), "DI_GEAR_INVALID")]
+  ret.gearShifter = cs.get_gear_shifter(can_parsers)
   ret.doorOpen = any((cs.can_define.dv["GTW_carState"][door].get(int(cp_chassis.vl["GTW_carState"][door]), "OPEN") == "OPEN") for door in _DOORS)
   ret.leftBlinker = cp_chassis.vl["GTW_carState"]["BC_indicatorLStatus"] == 1
   ret.rightBlinker = cp_chassis.vl["GTW_carState"]["BC_indicatorRStatus"] == 1
