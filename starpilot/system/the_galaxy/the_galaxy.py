@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 
 import importlib
 import math
@@ -4143,10 +4142,8 @@ def _get_offroad_vehicle_parked():
 
   with car.CarParams.from_bytes(cp_bytes) as cp, custom.StarPilotCarParams.from_bytes(fpcp_bytes) as fpcp:
     car_state = importlib.import_module(f"opendbc.car.{cp.brand}.carstate").CarState(cp, fpcp)
-    parsers = car_state.get_can_parsers(cp)
-    # These options don't affect gearShifter.
-    toggles = SimpleNamespace(subaru_sng=False, cluster_offset=1.0)
-    car_state.update(parsers, toggles)  # Register CAN messages before filtering frames.
+    parsers = {bus: CANParser(parser.dbc_name, [], parser.bus) for bus, parser in car_state.get_can_parsers(cp).items()}
+    car_state.get_gear_shifter(parsers)  # Register CAN messages before filtering frames.
     can_sock = messaging.sub_sock("can", timeout=100)
     # pandad timestamps logMonoTime using CLOCK_BOOTTIME.
     clock_id = getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC)
@@ -4165,15 +4162,14 @@ def _get_offroad_vehicle_parked():
         continue
       for parser in parsers.values():
         parser.update(frames)
-      state, _ = car_state.update(parsers, toggles)
-      car_state.out = state
+      gear = car_state.get_gear_shifter(parsers)
       now = time.clock_gettime_ns(clock_id)
       # Use current time since can_valid uses the last CAN timestamp.
       if all(
         message.frequency > 0 and message.valid(now, parser.bus_timeout)
-        for parser in parsers.values() for message in parser.message_states.values() if not message.ignore_alive
+        for parser in parsers.values() for message in parser.message_states.values()
       ) and all(parser.can_valid for parser in parsers.values()):
-        return state.gearShifter == car.CarState.GearShifter.park
+        return gear == car.CarState.GearShifter.park
   return False
 
 def _get_vehicle_parked():

@@ -21,6 +21,11 @@ class CarState(CarStateBase):
 
     self.distance_button = 0
 
+  def get_gear_shifter(self, can_parsers):
+    cp = can_parsers[Bus.pt]
+    can_gear = int(cp.vl["GEAR"]["GEAR"])
+    return self.parse_gear_shifter(self.shifter_values.get(can_gear, None))
+
   def update(self, can_parsers, starpilot_toggles) -> structs.CarState:
     cp = can_parsers[Bus.pt]
     cp_cam = can_parsers[Bus.cam]
@@ -41,8 +46,7 @@ class CarState(CarStateBase):
     speed_kph = cp.vl["ENGINE_DATA"]["SPEED"]
     ret.standstill = speed_kph <= .1
 
-    can_gear = int(cp.vl["GEAR"]["GEAR"])
-    ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(can_gear, None))
+    ret.gearShifter = self.get_gear_shifter(can_parsers)
 
     ret.genericToggle = bool(cp.vl["BLINK_INFO"]["HIGH_BEAMS"])
     ret.leftBlindspot = cp.vl["BSM"]["LEFT_BS_STATUS"] != 0
