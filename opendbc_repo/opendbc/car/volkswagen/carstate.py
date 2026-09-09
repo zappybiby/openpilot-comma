@@ -90,7 +90,7 @@ class CarState(CarStateBase):
 
     ret = structs.CarState()
 
-    ret.gearShifter = self.get_gear_shifter({Bus.pt: pt_cp})
+    ret.gearShifter = self.get_gear_shifter(can_parsers)
 
     if True:
       # MQB-specific
