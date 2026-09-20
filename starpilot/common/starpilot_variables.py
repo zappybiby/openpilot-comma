@@ -26,7 +26,7 @@ from opendbc.car.toyota.values import CAR as TOYOTA_CAR, ToyotaStarPilotFlags
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.constants import CV
 from openpilot.common.params import Params
-from openpilot.selfdrive.controls.lib.latcontrol_torque import KP
+from openpilot.selfdrive.controls.lib.latcontrol_torque import KP, get_torque_kp
 from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.starpilot.common.model_versions import is_tinygrad_model_version
 from openpilot.starpilot.common.lateral_delay import full_lateral_delay
@@ -599,6 +599,20 @@ class StarPilotVariables:
 
     self.params.put_float(stock_key, live_value)
 
+  def _update_steer_kp(self, car_model, is_torque_car, is_angle_car, advanced_lateral_tuning):
+    toggle = self.starpilot_toggles
+    steer_kp = KP
+    if is_torque_car and not is_angle_car and not (toggle.nnff or toggle.nnff_lite):
+      steer_kp = get_torque_kp(car_model)
+
+    # Keep the disabled/default setting and UI Reset value aligned with the
+    # standard controller's model-specific tune. NNFF retains its existing default.
+    self._sync_stock_param("SteerKP", "SteerKPStock", steer_kp)
+    toggle.steerKp = [[0], [self.get_value(
+      "SteerKP", cast=float, condition=advanced_lateral_tuning and is_torque_car and not is_angle_car,
+      default=steer_kp, min=steer_kp * 0.5, max=steer_kp * 1.5,
+    )]]
+
   def _migrate_steer_delay_mode(self, vehicle_delay: float) -> None:
     if self.params_raw.get_bool(STEER_DELAY_MODE_MIGRATION_KEY):
       return
@@ -677,6 +691,10 @@ class StarPilotVariables:
     toggle.has_zss = toggle.car_make == "toyota" and bool(FPCP.flags & ToyotaStarPilotFlags.ZSS.value)
     toggle.redneck_cruise_available = bool(FPCP.redneckCruiseAvailable)
     is_angle_car = CP.steerControlType == car.CarParams.SteerControlType.angle
+    lateral_tuning = self.get_value("LateralTune")
+    toggle.force_torque_controller = self.get_value("ForceTorqueController", condition=lateral_tuning and not is_angle_car)
+    toggle.nnff = self.get_value("NNFF", condition=lateral_tuning and has_nnff and not is_angle_car)
+    toggle.nnff_lite = self.get_value("NNFFLite", condition=not toggle.nnff and lateral_tuning and not is_angle_car)
     latAccelFactor = CP.lateralTuning.torque.latAccelFactor
     if not math.isfinite(latAccelFactor):
       latAccelFactor = 0.0
@@ -713,7 +731,6 @@ class StarPilotVariables:
     stopAccel = CP.stopAccel
     steerActuatorDelay = CP.steerActuatorDelay
     fullSteerActuatorDelay = full_lateral_delay(steerActuatorDelay)
-    steerKp = KP
     steerRatio = CP.steerRatio
     toggle.stoppingDecelRate = CP.stoppingDecelRate
     toggle.vEgoStarting = CP.vEgoStarting
@@ -723,7 +740,6 @@ class StarPilotVariables:
     self._migrate_steer_delay_mode(steerActuatorDelay)
     self._sync_stock_param("SteerDelay", "SteerDelayStock", fullSteerActuatorDelay)
     self._sync_stock_param("SteerFriction", "SteerFrictionStock", friction)
-    self._sync_stock_param("SteerKP", "SteerKPStock", steerKp)
     self._sync_stock_param("SteerLatAccel", "SteerLatAccelStock", latAccelFactor)
     self._sync_stock_param("LongitudinalActuatorDelay", "LongitudinalActuatorDelayStock", longitudinalActuatorDelay)
     self._sync_stock_param("StartAccel", "StartAccelStock", startAccel)
@@ -787,7 +803,7 @@ class StarPilotVariables:
     toggle.use_custom_steerActuatorDelay = advanced_lateral_tuning and not toggle.use_auto_steer_delay
     toggle.friction = self.get_value("SteerFriction", cast=float, condition=advanced_lateral_tuning, default=friction, min=0, max=1)
     toggle.use_custom_friction = bool(round(toggle.friction, 2) != round(friction, 2)) and is_torque_car and not toggle.force_auto_tune or toggle.force_auto_tune_off
-    toggle.steerKp = [[0], [self.get_value("SteerKP", cast=float, condition=advanced_lateral_tuning and is_torque_car and not is_angle_car, default=steerKp, min=steerKp * 0.5, max=steerKp * 1.5)]]
+    self._update_steer_kp(toggle.car_model, is_torque_car, is_angle_car, advanced_lateral_tuning)
     toggle.latAccelFactor = self.get_value("SteerLatAccel", cast=float, condition=advanced_lateral_tuning, default=latAccelFactor, min=latAccelFactor * 0.5, max=latAccelFactor * 1.5)
     toggle.use_custom_latAccelFactor = bool(round(toggle.latAccelFactor, 2) != round(latAccelFactor, 2)) and is_torque_car and not toggle.force_auto_tune or toggle.force_auto_tune_off
     toggle.steerRatio = self.get_value("SteerRatio", cast=float, condition=advanced_lateral_tuning, default=steerRatio, min=steerRatio * 0.5, max=steerRatio * 1.5)
@@ -1181,10 +1197,6 @@ class StarPilotVariables:
     toggle.lane_change_jerk_factor = min(1.0, j_req * 1.3 / 5.0)
     toggle.lane_change_time_max = 10.0 + (10 - pace) * 2.0 / 9.0
 
-    lateral_tuning = self.get_value("LateralTune")
-    toggle.force_torque_controller = self.get_value("ForceTorqueController", condition=lateral_tuning and not is_angle_car)
-    toggle.nnff = self.get_value("NNFF", condition=lateral_tuning and has_nnff and not is_angle_car)
-    toggle.nnff_lite = self.get_value("NNFFLite", condition=not toggle.nnff and lateral_tuning and not is_angle_car)
     toggle.nav_desires_allowed = self.get_value("NavDesiresAllowed")
     toggle.nav_lane_positioning_allowed = self.get_value("NavLanePositioningAllowed")
     toggle.use_turn_desires = self.get_value("TurnDesires", condition=lateral_tuning)
