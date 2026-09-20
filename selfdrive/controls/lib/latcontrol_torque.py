@@ -12,7 +12,6 @@ from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.pid import PIDController
 from openpilot.selfdrive.controls.lib.drive_helpers import MIN_SPEED
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
-from openpilot.selfdrive.controls.lib.latcontrol_vehicle_tunes import HONDA_ACCORD_TORQUE_KP
 from openpilot.selfdrive.controls.lib.latcontrol_vehicle_tunes import *  # noqa: F403
 
 # At higher speeds (25+mph) we can assume:
@@ -72,20 +71,13 @@ def get_center_chatter_friction_jerk_deadzone(v_ego, setpoint, vehicle_deadzone=
 FF_ROLL_OFFSET_FADE_BP = [0.5, 2.5]  # m/s
 FF_ROLL_OFFSET_FADE_V = [0.0, 1.0]
 
-
-def get_torque_kp(car_fingerprint: str) -> float:
-  """Return the model's base Kp for both controller initialization and settings."""
-  return HONDA_ACCORD_TORQUE_KP if car_fingerprint == HONDA_CAR.HONDA_ACCORD else KP
-
-
 class LatControlTorque(LatControl):
   def __init__(self, CP, CI, dt):
     super().__init__(CP, CI, dt)
     self.torque_params = CP.lateralTuning.torque.as_builder()
     self.torque_from_lateral_accel = CI.torque_from_lateral_accel()
     self.lateral_accel_from_torque = CI.lateral_accel_from_torque()
-    kp_values = [*KP_INTERP[:-1], get_torque_kp(CP.carFingerprint)]
-    self.pid = PIDController([INTERP_SPEEDS, kp_values], KI, rate=1/self.dt)
+    self.pid = PIDController([INTERP_SPEEDS, KP_INTERP], KI, rate=1/self.dt)
     self.update_limits()
     self.steering_angle_deadzone_deg = self.torque_params.steeringAngleDeadzoneDeg
     self.request_buffer_len = int(LAT_ACCEL_REQUEST_BUFFER_SECONDS / self.dt)
@@ -158,6 +150,7 @@ class LatControlTorque(LatControl):
     self.torque_deadzone_boost = float(getattr(self.torque_params, "kfDEPRECATED", 0.0))
     self.torque_ki_mult = 1.0
     if self.is_honda_accord:
+      self.pid._k_p = [self.pid._k_p[0], [*self.pid._k_p[1][:-1], HONDA_ACCORD_TORQUE_KP]]
       self.pid._k_i = [self.pid._k_i[0], [HONDA_ACCORD_TORQUE_KI] * len(self.pid._k_i[1])]
     if self.is_palisade:
       self.torque_params.latAccelFactor *= PALISADE_BASE_LAT_ACCEL_FACTOR_MULT

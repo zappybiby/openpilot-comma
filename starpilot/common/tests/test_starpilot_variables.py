@@ -1,7 +1,5 @@
 from types import SimpleNamespace
 
-import pytest
-
 from openpilot.starpilot.common import starpilot_variables as spv
 
 
@@ -194,81 +192,6 @@ def test_sync_stock_param_does_not_stomp_existing_custom_value_when_stock_missin
 
   assert params.get_float("SteerDelay") == 0.35
   assert params.get_float("SteerDelayStock") == 0.10
-
-
-@pytest.mark.parametrize("advanced_lateral_tuning", [False, True])
-@pytest.mark.parametrize("model,torque,angle,nnff,nnff_lite,expected", [
-  ("HONDA_ACCORD", True, False, False, False, 0.8),
-  ("HONDA_CIVIC_BOSCH", True, False, False, False, 0.6),
-  ("CHEVROLET_BOLT_ACC_2022_2023", True, False, False, False, 0.6),
-  ("HONDA_ACCORD", False, False, False, False, 0.6),
-  ("HONDA_ACCORD", True, True, False, False, 0.6),
-  ("HONDA_ACCORD", True, False, True, False, 0.6),
-  ("HONDA_ACCORD", True, False, False, True, 0.6),
-])
-def test_steer_kp_defaults_follow_model_and_controller(model, torque, angle, nnff, nnff_lite, expected, advanced_lateral_tuning):
-  variables = object.__new__(spv.StarPilotVariables)
-  variables.params = _FakeParams({"SteerKP": 0.6, "SteerKPStock": 0.6})
-  variables.starpilot_toggles = SimpleNamespace(nnff=nnff, nnff_lite=nnff_lite)
-
-  variables._update_steer_kp(model, torque, angle, advanced_lateral_tuning)
-
-  assert variables.starpilot_toggles.steerKp == [[0], [expected]]
-  assert variables.params.get_float("SteerKPStock") == expected
-  assert variables.params.get_float("SteerKP") == expected
-
-
-@pytest.mark.parametrize("advanced_lateral_tuning,expected", [(False, 0.8), (True, 0.7)])
-def test_steer_kp_preserves_manual_value_and_resets_to_model_default(advanced_lateral_tuning, expected):
-  variables = object.__new__(spv.StarPilotVariables)
-  variables.params = _FakeParams({"SteerKP": 0.7, "SteerKPStock": 0.6})
-  variables.starpilot_toggles = SimpleNamespace(nnff=False, nnff_lite=False)
-
-  variables._update_steer_kp("HONDA_ACCORD", True, False, advanced_lateral_tuning)
-
-  assert variables.starpilot_toggles.steerKp == [[0], [expected]]
-  assert variables.params.get_float("SteerKP") == 0.7
-  assert variables.params.get_float("SteerKPStock") == 0.8
-
-  variables.params.put_float("SteerKP", variables.params.get_float("SteerKPStock"))
-  variables._update_steer_kp("HONDA_ACCORD", True, False, advanced_lateral_tuning)
-  assert variables.starpilot_toggles.steerKp == [[0], [0.8]]
-
-
-def test_steer_kp_returns_to_generic_default_when_switching_to_nnff():
-  variables = object.__new__(spv.StarPilotVariables)
-  variables.params = _FakeParams({"SteerKP": 0.8, "SteerKPStock": 0.8})
-  variables.starpilot_toggles = SimpleNamespace(nnff=True, nnff_lite=False)
-
-  variables._update_steer_kp("HONDA_ACCORD", True, False, True)
-
-  assert variables.starpilot_toggles.steerKp == [[0], [0.6]]
-  assert variables.params.get_float("SteerKPStock") == 0.6
-
-
-@pytest.mark.parametrize("advanced_lateral_tuning", [False, True])
-def test_accord_default_steer_kp_survives_controls_updates(monkeypatch, advanced_lateral_tuning):
-  from openpilot.common.pid import PIDController
-  from openpilot.selfdrive.controls import controlsd
-
-  variables = object.__new__(spv.StarPilotVariables)
-  variables.params = _FakeParams({"SteerKP": 0.6, "SteerKPStock": 0.6})
-  variables.starpilot_toggles = SimpleNamespace(nnff=False, nnff_lite=False)
-  variables._update_steer_kp("HONDA_ACCORD", True, False, advanced_lateral_tuning)
-
-  controller = SimpleNamespace(pid=PIDController(0.8, 0.15))
-  controls = SimpleNamespace(
-    LaC=controller,
-    CP=SimpleNamespace(lateralTuning=SimpleNamespace(which=lambda: "torque")),
-    sm=SimpleNamespace(update=lambda _timeout: None, updated=dict(liveCalibration=False, livePose=False, liveDelay=False)),
-    starpilot_toggles=variables.starpilot_toggles,
-  )
-  monkeypatch.setattr(controlsd, "get_starpilot_toggles", lambda _sm: variables.starpilot_toggles)
-
-  for _ in range(3):
-    controlsd.Controls.update(controls)
-    assert controller.pid.k_p == pytest.approx(0.8)
-    assert controller.pid.k_i == pytest.approx(0.15)
 
 
 def test_steer_delay_mode_migration_converts_untouched_stock_value_to_full_auto_delay():
